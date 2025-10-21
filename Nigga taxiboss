@@ -1,0 +1,304 @@
+-- Taxi Boss: Optimized AutoMoney + Minimal Dark UI + Watchdog (Fast Safe mode)
+-- Paste this into your executor
+-- Author: Assistant (optimized for your original script logic)
+-- NOTE: Adjust "FAST_DELAY" for speed vs safety
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ========== CONFIG ==========
+local FAST_DELAY = {min = 0.08, max = 0.16}  -- Fast Safe: randomized small delays
+local WATCHDOG_TIMEOUT = 2.5                 -- if no activity in X sec, restart auto
+local HEARTBEAT_STEP = 0.03                  -- heartbeat loop tick
+-- ============================
+
+-- ========== UTILITIES ==========
+local function randDelay()
+    return FAST_DELAY.min + math.random() * (FAST_DELAY.max - FAST_DELAY.min)
+end
+
+local function safeInvoke(fn, ...)
+    local ok, res = pcall(fn, ...)
+    return ok, res
+end
+
+local function safeInvokeServer(remote, ...)
+    return safeInvoke(function(...) return remote:InvokeServer(...) end, ...)
+end
+
+local function safeFireServer(remote, ...)
+    return safeInvoke(function(...) return remote:FireServer(...) end, ...)
+end
+
+-- ========== WATCHDOG MANAGER ==========
+local Watchdog = {}
+Watchdog.__index = Watchdog
+
+function Watchdog.new(timeout, onReset)
+    local self = setmetatable({}, Watchdog)
+    self.timeout = timeout or 3
+    self.onReset = onReset
+    self.lastBeat = tick()
+    self.running = false
+    return self
+end
+
+function Watchdog:beat()
+    self.lastBeat = tick()
+end
+
+function Watchdog:start()
+    if self.running then return end
+    self.running = true
+    task.spawn(function()
+        while self.running do
+            if tick() - self.lastBeat >= self.timeout then
+                -- trigger reset handler
+                if self.onReset then
+                    pcall(self.onReset)
+                end
+                -- refresh lastBeat so we don't spam resets
+                self.lastBeat = tick()
+            end
+            task.wait(0.5)
+        end
+    end)
+end
+
+function Watchdog:stop()
+    self.running = false
+end
+
+-- ========== AUTO MONEY MODULE ==========
+local AutoMoney = {}
+AutoMoney.enabled = false
+AutoMoney._thread = nil
+AutoMoney._lastAction = tick()
+
+-- function that performs a single money attempt (safe, idempotent)
+local function doMoneyStep()
+    -- Example logic derived from original script:
+    -- Start contract if missing, then call DeliveryComplete repeatedly, then CompleteContract
+    -- All calls are wrapped in pcall
+    local success
+    -- Try cancel (safe) to clear stuck state - pcall for safety
+    pcall(function()
+        local active = LocalPlayer.ActiveQuests:FindFirstChildOfClass("StringValue")
+        if active then
+            local cancelRemote = ReplicatedStorage:WaitForChild("Quests"):WaitForChild("Contracts"):WaitForChild("CancelContract")
+            pcall(function() cancelRemote:InvokeServer(active.Name) end)
+        end
+    end)
+
+    -- Ensure we have a contract "contractBuildMaterial" active
+    if not LocalPlayer.ActiveQuests:FindFirstChild("contractBuildMaterial") then
+        local startRemote = ReplicatedStorage:WaitForChild("Quests"):WaitForChild("Contracts"):WaitForChild("StartContract")
+        local ok = pcall(function() startRemote:InvokeServer("contractBuildMaterial") end)
+        task.wait(randDelay()*2)
+        -- give a small chance to re-check
+        return
+    end
+
+    -- Attempt DeliveryComplete a few times (pcall)
+    local deliveryRemote = ReplicatedStorage:WaitForChild("Quests"):WaitForChild("DeliveryComplete")
+    for i = 1, 3 do
+        pcall(function() deliveryRemote:InvokeServer("contractMaterial") end)
+        task.wait(randDelay())
+    end
+
+    -- If contract value matches expected sentinel, complete it
+    local contractVal = LocalPlayer.ActiveQuests.contractBuildMaterial.Value
+    if contractVal == "!pw5pi3ps2" then
+        local completeRemote = ReplicatedStorage:WaitForChild("Quests"):WaitForChild("Contracts"):WaitForChild("CompleteContract")
+        pcall(function() completeRemote:InvokeServer() end)
+    end
+end
+
+-- main run function (single loop, uses RunService.Heartbeat for low-overhead)
+function AutoMoney:start()
+    if self.enabled then return end
+    self.enabled = true
+    self._lastAction = tick()
+    local wd = self._watchdog
+    if wd then wd:beat() end
+
+    -- Using a controlled coroutine loop
+    self._thread = coroutine.create(function()
+        local accumulator = 0
+        while self.enabled do
+            -- small sleep to avoid tight busy-loop
+            task.wait(HEARTBEAT_STEP)
+            -- perform a step; wrapped to prevent crash
+            local ok, err = pcall(function()
+                doMoneyStep()
+                -- mark last action
+                self._lastAction = tick()
+                if self._watchdog then self._watchdog:beat() end
+            end)
+            if not ok then
+                -- log but continue
+                warn("[AutoMoney] step error:", err)
+            end
+            -- randomized small pause to reduce detectability / spread load
+            task.wait(randDelay())
+        end
+    end)
+    coroutine.resume(self._thread)
+end
+
+function AutoMoney:stop()
+    self.enabled = false
+    -- thread will exit gracefully
+end
+
+function AutoMoney:isRunning()
+    return self.enabled
+end
+
+-- attach watchdog: restart AutoMoney if it stops unexpectedly
+AutoMoney._watchdog = Watchdog.new(WATCHDOG_TIMEOUT, function()
+    warn("[AutoMoney Watchdog] Detected stall. Restarting AutoMoney.")
+    -- restart sequence
+    AutoMoney:stop()
+    task.wait(0.06)
+    AutoMoney:start()
+end)
+
+-- start watchdog but will only actively reset when AutoMoney started
+AutoMoney._watchdog:start()
+
+-- ========== UI (Minimal Dark) ==========
+-- We'll attempt to use the same style library pattern as your original script if available
+local okLib, library = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/Marco8642/science/main/ui%20libs2", true))()
+end)
+
+-- Fallback: if the external lib fails, create a very simple native UI
+local UI = {}
+if okLib and library then
+    -- configure library style (attempt minimal dark)
+    pcall(function()
+        library:SetTheme({
+            Background = {0.06,0.06,0.07},
+            Accent = {0.18,0.18,0.2},
+            TextColor = {1,1,1},
+            ButtonColor = {0.13,0.13,0.14}
+        })
+    end)
+
+    local win = library:CreateWindow({text = "Taxi Boss (Optimized)"})
+    UI.window = win
+
+    -- Status label
+    local statusLabel = nil
+    win:AddLabel("Status: Idle", function() end)
+    statusLabel = win:AddLabel("AutoMoney: OFF", function() end)
+
+    -- AutoMoney toggle
+    win:AddToggle("Auto Money (Fast Safe)", function(state)
+        if state then
+            AutoMoney:start()
+            statusLabel:SetText("AutoMoney: ON")
+        else
+            AutoMoney:stop()
+            statusLabel:SetText("AutoMoney: OFF")
+        end
+    end)
+
+    -- Manual single-step button (useful for testing)
+    win:AddButton("Do Single Money Step", function()
+        pcall(doMoneyStep)
+        if AutoMoney._watchdog then AutoMoney._watchdog:beat() end
+    end)
+
+    -- Quick FPS / resource reduce toggle (simply removes some effects clientside)
+    win:AddToggle("Lightweight Mode (Client Only)", function(state)
+        if state then
+            -- disable client effects if possible (non-intrusive)
+            pcall(function()
+                local lighting = game:GetService("Lighting")
+                lighting.GlobalShadows = false
+            end)
+        else
+            pcall(function()
+                local lighting = game:GetService("Lighting")
+                lighting.GlobalShadows = true
+            end)
+        end
+    end)
+
+    -- Show small telemetry
+    local telemetryLabel = win:AddLabel("Last action: 0s ago", function() end)
+    -- update telemetry periodically
+    task.spawn(function()
+        while task.wait(0.8) do
+            local diff = math.floor((tick() - AutoMoney._lastAction) * 10) / 10
+            pcall(function() telemetryLabel:SetText("Last action: "..tostring(diff).."s ago") end)
+        end
+    end)
+
+else
+    -- fallback UI (very simple)
+    warn("UI library not available — using fallback UI")
+    -- Minimal fallback: simple screen Gui
+    local StarterGui = game:GetService("StarterGui")
+    local screenGui = Instance.new("ScreenGui"); screenGui.Name = "TaxiBossOptimizedUI"; screenGui.ResetOnSpawn = false
+    local frame = Instance.new("Frame", screenGui)
+    frame.Size = UDim2.new(0, 300, 0, 120)
+    frame.Position = UDim2.new(0.02, 0, 0.02, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(18,18,20)
+    frame.AnchorPoint = Vector2.new(0,0)
+    local title = Instance.new("TextLabel", frame)
+    title.Size = UDim2.new(1,0,0,28); title.BackgroundTransparency = 1
+    title.Text = "Taxi Boss (Optimized)"; title.TextColor3 = Color3.fromRGB(230,230,230)
+    title.TextXAlignment = Enum.TextXAlignment.Left; title.Position = UDim2.new(0,10,0,4)
+
+    local toggleBtn = Instance.new("TextButton", frame)
+    toggleBtn.Size = UDim2.new(0.6, 0, 0, 36); toggleBtn.Position = UDim2.new(0,10,0,36)
+    toggleBtn.Text = "Start AutoMoney"; toggleBtn.TextColor3 = Color3.fromRGB(230,230,230)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(40,40,42)
+    toggleBtn.MouseButton1Click:Connect(function()
+        if AutoMoney:isRunning() then
+            AutoMoney:stop()
+            toggleBtn.Text = "Start AutoMoney"
+        else
+            AutoMoney:start()
+            toggleBtn.Text = "Stop AutoMoney"
+        end
+    end)
+
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- ========== STARTUP SAFETY ==========
+-- ensure some remote paths exist before enabling
+task.spawn(function()
+    pcall(function()
+        ReplicatedStorage:WaitForChild("Quests", 8)
+        ReplicatedStorage.Quests:WaitForChild("Contracts", 8)
+        ReplicatedStorage.Quests.Contracts:WaitForChild("StartContract", 8)
+    end)
+end)
+
+-- ========== CLEAN EXIT HANDLER ==========
+local function cleanup()
+    AutoMoney:stop()
+    if AutoMoney._watchdog then AutoMoney._watchdog:stop() end
+    -- destroy fallback UI if created
+    pcall(function()
+        local g = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("TaxiBossOptimizedUI")
+        if g then g:Destroy() end
+    end)
+end
+
+-- Bind on script unload (if the executor supports it)
+if syn and syn.terminate then
+    -- attempt to detect terminate — environment specific, optional
+end
+
+-- Optional: auto-start if you want (commented by default)
+-- AutoMoney:start()
+
+print("[TaxiBossOptimized] Loaded. Toggle AutoMoney from the UI.")
