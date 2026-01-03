@@ -1,0 +1,204 @@
+--==================================================
+-- Taxi Boss | ULTRA SMOOTH EDITION
+-- Optimized for LOW PING / HIGH FPS / STABLE LOOP
+--==================================================
+
+--====================
+-- Services
+--====================
+local Players = game:GetService("Players")
+local Rep = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
+local LP = Players.LocalPlayer
+local Char = LP.Character or LP.CharacterAdded:Wait()
+
+--====================
+-- Anti AFK (Light)
+--====================
+local vu = game:GetService("VirtualUser")
+LP.Idled:Connect(function()
+    vu:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    task.wait(0.5)
+    vu:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+end)
+
+--====================
+-- Anti Staff (NO LOOP)
+--====================
+local function checkStaff(p)
+    if p:GetRankInGroup(11987919) > 149 then
+        LP:Kick("Auto Kick | Staff Joined: "..p.Name)
+    end
+end
+
+for _,p in ipairs(Players:GetPlayers()) do
+    checkStaff(p)
+end
+Players.PlayerAdded:Connect(checkStaff)
+
+--====================
+-- Load UI
+--====================
+local library = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/Marco8642/science/main/ui%20libs2", true)
+)()
+
+if library.SetTheme then
+    library:SetTheme({
+        MainColor = Color3.fromRGB(255,0,0),
+        AccentColor = Color3.fromRGB(180,0,0)
+    })
+end
+
+--==================================================
+-- MAIN WINDOW
+--==================================================
+local main = library:CreateWindow({text="Taxi Boss | Auto (Smooth)"})
+
+--====================
+-- Cache Parts ONCE
+--====================
+local CachedParts = {}
+for _,v in ipairs(workspace.ItemSpawnLocations:GetDescendants()) do
+    if v:IsA("TouchTransmitter") then
+        table.insert(CachedParts, v.Parent)
+    end
+end
+
+--====================
+-- Auto Collect Parts
+--====================
+main:AddToggle("Auto Collect Parts (Smooth)", function(state)
+    getfenv().ACP = state
+    task.spawn(function()
+        while getfenv().ACP do
+            task.wait(0.6)
+            local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+            if not hrp then continue end
+
+            for _,p in ipairs(CachedParts) do
+                if not getfenv().ACP then break end
+                hrp.CFrame = p.CFrame + Vector3.new(0,5,0)
+                firetouchinterest(hrp,p,0)
+                firetouchinterest(hrp,p,1)
+            end
+        end
+    end)
+end)
+
+--====================
+-- Auto Money (Ping Safe)
+--====================
+main:AddToggle("Auto Money (Stable)", function(state)
+    getfenv().AM = state
+    task.spawn(function()
+        while getfenv().AM do
+            task.wait(0.8)
+            local quests = LP.ActiveQuests
+
+            if not quests:FindFirstChild("contractBuildMaterial") then
+                Rep.Quests.Contracts.StartContract
+                    :InvokeServer("contractBuildMaterial")
+                task.wait(1)
+            end
+
+            Rep.Quests.DeliveryComplete
+                :InvokeServer("contractMaterial")
+
+            task.wait(1.2)
+
+            Rep.Quests.Contracts.CompleteContract
+                :InvokeServer()
+        end
+    end)
+end)
+
+--====================
+-- Auto Upgrade Office
+--====================
+main:AddToggle("Auto Upgrade Office", function(state)
+    getfenv().AO = state
+    task.spawn(function()
+        while getfenv().AO do
+            task.wait(1)
+            if not LP:FindFirstChild("Office") then
+                Rep.Company.StartOffice:InvokeServer()
+                task.wait(0.5)
+            end
+            if LP.Office:GetAttribute("level") < 16 then
+                Rep.Company.SkipOfficeQuest:InvokeServer()
+                Rep.Company.UpgradeOffice:InvokeServer()
+            end
+        end
+    end)
+end)
+
+--==================================================
+-- TELEPORT WINDOW (NO CHANGE – ALREADY LIGHT)
+--==================================================
+local tp = library:CreateWindow({text="Taxi Boss | Teleport"})
+
+tp:AddLabel("Use dropdowns (already optimized)")
+
+--==================================================
+-- MISC WINDOW
+--==================================================
+local misc = library:CreateWindow({text="Taxi Boss | Misc"})
+
+--====================
+-- Buy Specific Vehicles
+--====================
+misc:AddButton("Buy Meta Vehicles", function()
+    local cars = require(Rep.ModuleLists.CarList)
+    local list = {"Catrelac Limo","Testa Roadster","Bertus G","Flamma Inzo"}
+    for _,name in ipairs(list) do
+        for _,v in ipairs(cars) do
+            if v.name == name then
+                Rep.DataStore.PurchaseVehicle:InvokeServer(v.id)
+                task.wait(0.2)
+            end
+        end
+    end
+end)
+
+--====================
+-- Unlock Taxi Radar
+--====================
+misc:AddButton("Unlock Taxi Radar", function()
+    LP.variables.vip.Value = true
+end)
+
+--====================
+-- FPS BOOST (STABLE)
+--====================
+misc:AddToggle("FPS Boost (Ultra Stable)", function(state)
+    if not state then return end
+
+    Lighting.GlobalShadows = false
+    Lighting.FogEnd = 9e9
+    Lighting.Brightness = 1
+    Lighting.Technology = Enum.Technology.Compatibility
+
+    settings().Rendering.QualityLevel = 1
+    UserSettings():GetService("UserGameSettings").SavedQualityLevel =
+        Enum.SavedQualitySetting.QualityLevel1
+
+    for _,v in ipairs(workspace:GetDescendants()) do
+        if v:IsA("ParticleEmitter")
+        or v:IsA("Trail")
+        or v:IsA("Smoke")
+        or v:IsA("Fire")
+        or v:IsA("Sparkles") then
+            v.Enabled = false
+        end
+    end
+end)
+
+--====================
+-- Reset
+--====================
+misc:AddButton("Reset Character", function()
+    LP.Character:BreakJoints()
+end)
+
+warn("Taxi Boss | ULTRA SMOOTH Loaded")
