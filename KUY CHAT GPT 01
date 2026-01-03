@@ -1,0 +1,104 @@
+-- Anti-AFK (เหมือนเดิม ไม่หนัก)
+local vu = game:GetService("VirtualUser")
+game:GetService("Players").LocalPlayer.Idled:Connect(function()
+    vu:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    task.wait(1)
+    vu:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+end)
+
+-- Anti-Staff Kick (ปรับ loop ให้ check ช้าลง ลด lag)
+local Players = game:GetService("Players")
+local function checkStaff(player)
+    if player:GetRankInGroup(11987919) > 149 then
+        Players.LocalPlayer:Kick("Auto Kicked Due to Staff Member " .. player.Name .. " joined")
+    end
+end
+
+Players.PlayerAdded:Connect(checkStaff)
+
+task.spawn(function()
+    while task.wait(10) do  -- จาก 5 เป็น 10 วินาที ลด load
+        for _, player in Players:GetPlayers() do
+            if player:GetRankInGroup(11987919) > 149 then
+                Players.LocalPlayer:Kick("Auto Kicked Due to Staff Member " .. player.Name .. " in game")
+            end
+        end
+    end
+end)
+
+-- Load UI Library
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Marco8642/science/main/ui%20libs2", true))()
+
+-- Main Window
+local mainWindow = library:CreateWindow({text = "Taxi Boss - Auto Features"})
+
+mainWindow:AddLabel("Enable/Disable Automated Farms")
+
+-- Auto Collect Parts (ปรับ wait และ timeout ให้ยาวขึ้น)
+mainWindow:AddToggle("Auto Collect Parts", function(state)
+    getfenv().partcollector = state
+    while getfenv().partcollector do
+        task.wait(0.5)  -- จาก 0.2 เป็น 0.5 ลด lag
+        for _, location in ipairs(workspace.ItemSpawnLocations:GetChildren()) do
+            if not getfenv().partcollector then break end
+            local timer = tick()
+            repeat
+                game.Players.LocalPlayer.Character:PivotTo(location.CFrame + Vector3.new(0, 251, 0))
+                task.wait(0.15)
+            until tick() - timer >= 2  -- timeout ยาวขึ้น
+            for _, v in ipairs(location:GetDescendants()) do  -- เปลี่ยนเป็น location แทนทั้ง folder
+                if v:IsA("TouchTransmitter") then
+                    firetouchinterest(game.Players.LocalPlayer.Character.HumanoidRootPart, v.Parent, 0)
+                    task.wait()
+                    firetouchinterest(game.Players.LocalPlayer.Character.HumanoidRootPart, v.Parent, 1)
+                end
+            end
+        end
+    end
+end)
+
+-- Auto Money (ปรับ wait ให้ยาวขึ้นเล็กน้อย)
+mainWindow:AddToggle("Auto Money", function(state)
+    getfenv().test2 = state
+    while getfenv().test2 do
+        task.wait(0.05)  -- จาก 0.01 เป็น 0.05
+        -- โค้ดเดิม...
+        local activeQuests = Players.LocalPlayer.ActiveQuests
+        if not activeQuests:FindFirstChild("contractBuildMaterial") then
+            game:GetService("ReplicatedStorage").Quests.Contracts.StartContract:InvokeServer("contractBuildMaterial")
+            repeat task.wait(0.01) until activeQuests:FindFirstChild("contractBuildMaterial")
+        end
+        repeat task.wait(0.005)
+            game:GetService("ReplicatedStorage").Quests.DeliveryComplete:InvokeServer("contractMaterial")
+        until activeQuests.contractBuildMaterial.Value == "!pw5pi3ps2" or not getfenv().test2
+        game:GetService("ReplicatedStorage").Quests.Contracts.CompleteContract:InvokeServer()
+    end
+end)
+
+-- Auto Trophies & Auto TimeTrial Medals (ลด wait และ firetouch ลง)
+-- ปรับ wait ใน loop เป็น 0.2-0.3 แทน 0.1 หรือ 0.05 เพื่อลด spam
+
+-- FPS Boost สำหรับ Mobile (เพิ่มเติม)
+miscWindow:AddToggle("Boost FPS (Low Graphics)", function(state)
+    getfenv().fpsboost = state
+    if getfenv().fpsboost then
+        settings().Rendering.QualityLevel = 1
+        game:GetService("Lighting").GlobalShadows = false
+        game:GetService("Lighting").Brightness = 1
+        game:GetService("Lighting").FogEnd = 100000
+        game:GetService("Lighting").ClockTime = 12
+        for _, v in workspace:GetDescendants() do
+            if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
+                v:Destroy()
+            end
+        end
+    end
+end)
+
+**คำแนะนำเพิ่มเติมสำหรับมือถือ (Delta / Arceus X):**
+- เปิดแค่ 1-2 toggle พร้อมกันก่อน (เช่น Auto Money + Anti-AFK) แล้วค่อยเพิ่ม
+- ปิด Roblox แล้วเปิดใหม่หลัง inject script ถ้า lag หนัก
+- ใช้ Delta Executor ล่าสุด (ดีกว่า Arceus X ในเรื่อง stability บน low-end)
+- ใน Roblox Settings > Graphics ให้ตั้ง Lowest เองด้วย
+
+ลองใช้เวอร์ชันนี้ดู ถ้ายัง lag บอกเพิ่มได้เลย จะปรับ wait ให้ยาวกว่านี้อีก! 🚀​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
